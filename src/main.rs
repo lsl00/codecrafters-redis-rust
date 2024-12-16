@@ -30,19 +30,20 @@ async fn main() -> io::Result<()> {
 
 async fn handle_conn(mut stream: TcpStream) {
    let mut hanlder = resp::RespHanlder::new(stream);
-
+   let mut storage = std::collections::HashMap::<String,String>::new();
    println!("Starting read loop");
 
    loop {
       let value = hanlder.read_value().await.unwrap();
-
       println!("Got value {:?}", value);
 
       let response = if let Some(v) = value {
          let (command, args) = extract_command(v).unwrap();
-         match command.as_str() {
-            "PING" => Value::SimpleString("PONG".to_string()),
-            "ECHO" => args.first().unwrap().clone(),
+         match command.to_ascii_lowercase().as_str() {
+            "ping" => Value::SimpleString("PONG".to_string()),
+            "echo" => args.first().unwrap().clone(),
+            "set" => set(&mut storage, unpack_bulk_str(args[0].clone()).unwrap() , unpack_bulk_str(args[1].clone()).unwrap()),
+            "get" => get(&storage, unpack_bulk_str(args[0].clone()).unwrap()),
             c => panic!("Cannot handle command {}", c),
          }
       } else {
@@ -53,6 +54,21 @@ async fn handle_conn(mut stream: TcpStream) {
 
       hanlder.write_value(response).await.unwrap();
    }
+}
+
+fn get(storage: &std::collections::HashMap<String,String>, key: String) -> Value {
+   for (k,v) in storage.iter() {
+      println!("{} {}",k,v);
+   }
+   match storage.get(&key) {
+      Some(v) => Value::BulkString(v.to_string()),
+      None => Value::Null,
+   }
+}
+
+fn set(storage: &mut std::collections::HashMap<String,String>, key: String,value: String) -> Value {
+   storage.insert(key, value);
+   Value::SimpleString("OK".to_string())
 }
 
 fn extract_command(value: Value) -> Result<(String, Vec<Value>)> {
